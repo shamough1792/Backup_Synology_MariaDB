@@ -1,2 +1,3 @@
 # backup_synology_mariadb
-Backup Synology NAS MariaDB databases
+
+Simple scripts to backup Synology NAS MariaDB databases.
