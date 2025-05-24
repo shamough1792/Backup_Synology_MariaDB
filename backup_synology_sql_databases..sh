@@ -1,52 +1,54 @@
 #!/bin/bash
 # backup_sql_databases.sh
 #
-# Script dumps all MySQL (or MariaDB) databases to separate SQL files (compressed to .sql.gz) 
-# with more readable filenames. It also removes old backups (older than specified amount of days).
+# Synology-compatible MySQL/MariaDB backup script
 
 ############
 # Settings #
 ############
 
-# WARNING: THIS SCRIPT WILL DELETE ANY FILES OLDER THAN DAYS_KEEP IN BACKUP_DIR!
-# Make sure BACKUP_DIR is correctly set and contains only the intended backup files.
-
-BACKUP_DIR=/path_to_store_backup/
-DAYS_KEEP=5 # script will remove backups older than $DAYS_KEEP days
-SQL_USER=root
-SQL_PASS=Your_db_Password
+BACKUP_DIR="/Path_To_Backup/"
+DAYS_KEEP=4  # Number of days to keep backups
+SQL_USER="root"
+SQL_PASS="Your_DB_Password"
 MYSQL_DIR="/volume1/@appstore/MariaDB10/usr/local/mariadb10/bin/"
+BACKUP_OWNER="$(whoami)"  # Or set to specific Synology user like "admin"
 
 #############
 # Main part #
 #############
-DATE=$(date +%Y-%m-%d)               # Format: 2023-05-19
-TIME=$(date +%H%M)                   # Format: 1430 (for 2:30 PM)
-DATESTAMP="${DATE}_${TIME}"           # Combines to: 2023-05-19_1430
 
-# Create backup directory with today's date if it doesn't exist
+# Create backup directory with proper permissions
+DATE=$(date +%Y-%m-%d)
+TIME=$(date +%H%M)
 TODAYS_BACKUP_DIR="${BACKUP_DIR}${DATE}/"
+
 mkdir -p "$TODAYS_BACKUP_DIR"
+chown "$BACKUP_OWNER" "$TODAYS_BACKUP_DIR"
+chmod 750 "$TODAYS_BACKUP_DIR"
 
-# remove backups older than $DAYS_KEEP
-find "${BACKUP_DIR}" -type d -mtime +$DAYS_KEEP -exec rm -rf {} \; 2> /dev/null
+# Improved old backup cleanup
+echo "Cleaning up backups older than $DAYS_KEEP days..."
+find "$BACKUP_DIR" -mindepth 1 -maxdepth 1 -type d -name "20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]" -mtime +$DAYS_KEEP -print0 | while IFS= read -r -d '' dir; do
+    echo "Deleting old backup: $dir"
+    rm -rf "$dir"
+done
 
-# list MySQL databases and dump each
-databases=$("$MYSQL_DIR/mysql" --user="$SQL_USER" --password="$SQL_PASS" -e "SHOW DATABASES;" | tr -d "| " | grep -v Database)
+# Get list of databases
+databases=$("${MYSQL_DIR}mysql" --user="$SQL_USER" --password="$SQL_PASS" -e "SHOW DATABASES;" | grep -Ev "(Database|information_schema|performance_schema|mysql|sys)")
 
+# Backup each database
 for db in $databases; do
-    # Skip system databases
-    if [[ "$db" != _* ]] && [[ "$db" != "mysql" ]] && [[ "$db" != "performance_schema" ]] && [[ "$db" != "information_schema" ]]; then
-        echo "Backing up database: $db"
-        FILENAME="${TODAYS_BACKUP_DIR}${db}_${TIME}.sql.gz"
-        $MYSQL_DIR/mysqldump --user="$SQL_USER" --password="$SQL_PASS" --opt --routines --force --databases $db | gzip > "$FILENAME"
-        
-        # Verify the backup was created
-        if [ -f "$FILENAME" ]; then
-            echo "Successfully created: $FILENAME"
-        else
-            echo "ERROR: Failed to create backup for $db" >&2
-        fi
+    echo "Backing up database: $db"
+    FILENAME="${TODAYS_BACKUP_DIR}${db}_${TIME}.sql.gz"
+    
+    if "${MYSQL_DIR}mysqldump" --user="$SQL_USER" --password="$SQL_PASS" --opt --routines --force --databases "$db" | gzip > "$FILENAME"; then
+        chown "$BACKUP_OWNER" "$FILENAME"
+        chmod 640 "$FILENAME"
+        echo "Successfully created: $FILENAME"
+    else
+        echo "ERROR: Failed to create backup for $db" >&2
+        rm -f "$FILENAME"
     fi
 done
 
