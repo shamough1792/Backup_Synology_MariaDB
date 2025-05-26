@@ -28,10 +28,14 @@ chown "$BACKUP_OWNER" "$TODAYS_BACKUP_DIR"
 chmod 750 "$TODAYS_BACKUP_DIR"
 
 # Improved old backup cleanup
-echo "Cleaning up backups older than $DAYS_KEEP days..."
-find "$BACKUP_DIR" -mindepth 1 -maxdepth 1 -type d -name "20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]" -mtime +$DAYS_KEEP -print0 | while IFS= read -r -d '' dir; do
-    echo "Deleting old backup: $dir"
-    rm -rf "$dir"
+CUTOFF_DATE=$(date -d "$DATE - $DAYS_KEEP days" +%Y-%m-%d)
+
+find "$BACKUP_DIR" -mindepth 1 -maxdepth 1 -type d -name "20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]" | while read -r dir; do
+    dir_date=$(basename "$dir")
+    if [[ "$dir_date" < "$CUTOFF_DATE" ]]; then
+        echo "Deleting old backup: $dir"
+        rm -rf "$dir"
+    fi
 done
 
 # Get list of databases
